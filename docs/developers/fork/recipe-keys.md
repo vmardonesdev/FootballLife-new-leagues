@@ -26,6 +26,7 @@ Rules that hold for every key:
 | key | type | meaning | world file |
 |---|---|---|---|
 | `world` | text, starts with `_FL26` | the world's folder name in `livecpk` (`load_recipe` refuses others) | `world` |
+| `cwc32` | boolean, default false | experimental 32-team Club World Cup; reserves knockout regulation 200; see [CWC32](club-world-cup-32.md) | tables only (native detection) |
 | `leagues` | list | the new leagues, and the "others" groups (below) | `league`, `split` ... |
 | `edits` | object | changes to the game's own clubs and leagues: `clubs` {team id: {name, abbr}}, `leagues` {reg id: {name}}, `competitions` {competition id: {name, logo}}, `swaps` [[team id, team id], ...] | tables only |
 | `players` | object | per-club player changes (see `lbplayers.py`: `edits`, `add`, `remove`, `join`, `id`, `face`, `portrait`, `coach_portrait`, `stadium`) | `newfaces`, `faceapp` |

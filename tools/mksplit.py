@@ -1,5 +1,5 @@
 r"""python mksplit.py --base <pesdb dir> --out <overlay root>
-                    --split 60:16x2:8x1:8x1 [--split ...] [--ids 191,192,...] [--dry]
+                    --split 60:16x2:8x1:8x1 [--split ...] [--ids 191,192,...] [--reserve 200] [--dry]
                     --split 60:18x1:18x1@Apertura,Clausura     (the phases' own names)
 
 Turn one of our plain leagues into a split season, the way the Scottish Premiership ships.
@@ -104,7 +104,8 @@ def main():
     comp, regs, ents = (M.load(base, n) for n in
                         ("Competition.bin", "CompetitionRegulation.bin", "CompetitionEntry.bin"))
     rows = [bytearray(regs[i * M.REG:(i + 1) * M.REG]) for i in range(len(regs) // M.REG)]
-    used = {rid(r) & 0x3ff for r in rows}
+    reserved = {int(x) for x in get("--reserve", "").split(",") if x}
+    used = {rid(r) & 0x3ff for r in rows} | reserved
 
     need = sum(len(p) for _t, p, _n in splits)
     if get("--ids"):

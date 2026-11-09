@@ -139,6 +139,9 @@ which league sits above -- and nothing about ids:
               the European calendar and the cups as an August-May cup of their shape. A
               division of ours below one of them plays August to May with it. The older
               saudi_august: true is ["Saudi Arabia"]
+  cwc32       (the recipe, not a league) true: experimental 32-team Club World Cup, eight
+              groups of four played once, knockout regulation 200. Default false. Annual,
+              native fixed access list; see docs/developers/fork/club-world-cup-32.md
   uecl        (the recipe, not a league) true, the default: the world gets the Conference
               League, cloned from the reshaped Europa League (mkuecl.py: competition 174,
               regulations 186/187, group 1210), and its play-off (mkeuropo.py: 189), the ids
@@ -272,6 +275,7 @@ import mkleague as M
 import mkworld as W
 import mkcoaches
 import mkuecl
+import mkcwc
 import fl26world
 import siderdir
 import flpaths
@@ -938,7 +942,7 @@ def has_edits(r):
                 or r.get("uecl_name") or r.get("uecl_logo") or r.get("caf_super_cup_logo")
                 or r.get("samerica_super_cup_logo") or r.get("samerica_super_cup_first")
                 or r.get("saudi_august") or r.get("game_seasons") or r.get("editable_kits") or r.get("squad") or r.get("country_order")
-                or r.get("conmebol")) \
+                or r.get("conmebol") or r.get("cwc32")) \
         or r.get("uecl") is False or r.get("caf_super_cup") is False or r.get("samerica_super_cup") is False
 
 
@@ -1022,7 +1026,7 @@ RECIPE_SETTINGS = ("game_europe", "uefa_seed", "uefa_rank", "europe_first", "gam
                    "ccup_names", "ccup_logos", "caf_super_cup", "caf_super_cup_logo", "cup_draw",
                    "country_order", "game_seasons", "saudi_august", "newlife_ids", "newlife_game",
                    "league_order", "packs", "conmebol", "conmebol_associations", "samerica_super_cup",
-                   "samerica_super_cup_logo", "samerica_super_cup_first", "sudamericana_calendar")
+                   "samerica_super_cup_logo", "samerica_super_cup_first", "sudamericana_calendar", "cwc32")
 
 
 def is_plan(r):
@@ -1128,7 +1132,7 @@ def recipe_from_plan(pl, base):
            "players": pl.get("players") or {}}
     if pl.get("conmebol_associations_recipe"):
         rec["conmebol_associations"] = pl["conmebol_associations_recipe"]
-    for k in ("uecl", "uecl_logo", "uecl_name", "editable_kits", "game_seasons", "cafsc"):
+    for k in ("cwc32", "uecl", "uecl_logo", "uecl_name", "editable_kits", "game_seasons", "cafsc"):
         if pl.get(k) or k == "uecl":       # (an empty game_seasons is no setting)
             rec[k] = pl.get(k)
     if squad_of(pl) != SQUAD_BASE:
@@ -2120,9 +2124,31 @@ def away_leagues(prev, names):
     return out
 
 
+def cwc32_enabled(recipe):
+    value = recipe.get("cwc32", False)
+    if type(value) is not bool:
+        raise BuildError("cwc32 must be true or false")
+    return value
+
+
+def cwc_reserved(recipe):
+    return {mkcwc.CWC_KO} if cwc32_enabled(recipe) else set()
+
+
 def plan(recipe, base, prev=None):
     """the plan of `recipe`; `prev` is the plan of the world's last Build, whose ids the
     leagues built then keep (prev_pins)"""
+    cwc = cwc32_enabled(recipe)
+    if cwc:
+        try:
+            mkcwc.reshape(M.load(base, "CompetitionRegulation.bin"), log=lambda _s: None)
+        except ValueError as e:
+            raise BuildError("cwc32: %s" % e) from e
+        for w in ((prev or {}).get("cup_ids") or {}).values():
+            if any(v == mkcwc.CWC_KO for k, v in w.items() if k != "cid"):
+                raise BuildError("cwc32: previous cup owns regulation 200; use a new world")
+        if any(L.get("rid") == mkcwc.CWC_KO for L in (prev or {}).get("leagues", [])):
+            raise BuildError("cwc32: previous league owns regulation 200; use a new world")
     use_squad(recipe)
     pins = prev_pins(prev)
     comp, regs = M.load(base, "Competition.bin"), M.load(base, "CompetitionRegulation.bin")
@@ -2161,7 +2187,7 @@ def plan(recipe, base, prev=None):
     # mkworld's order (the free list, 145 moved to 190), keeping only ids with a slot
     free = []
     for r in range(1, W.REG_MAX + 1):
-        if r in regrow or r in W.BAD_REG or r in W.MOVED_REG.values():
+        if r in cwc_reserved(recipe) or r in regrow or r in W.BAD_REG or r in W.MOVED_REG.values():
             continue
         r = W.MOVED_REG.get(r, r)
         if (r in fl26world.DEFAULT_SLOT or r in fl26world.NO_SLOT_IDS) and r not in regrow:
@@ -2638,7 +2664,7 @@ def plan(recipe, base, prev=None):
         raise BuildError("%d continental, league and pre-season cups -- fl26swiss.dll takes %d"
                          % (len(cups) + len(home), MAX_CCUP))
     return {"world": recipe["world"], "leagues": out, "others": others, "edits": recipe.get("edits") or {},
-            "free_ids": free_ids, "players": recipe.get("players") or {}, "uecl": bool(recipe.get("uecl", True)),
+            "cwc32": cwc, "free_ids": free_ids, "players": recipe.get("players") or {}, "uecl": bool(recipe.get("uecl", True)),
             "skipped": [t for _pr, t in stale] + fnotes,        # what Build leaves out, with why
             "trophies": dict(recipe.get("trophies") or {}),     # Leagues > More > Trophies (lbtrophies)
             "uecl_logo": recipe.get("uecl_logo") or None,
@@ -4387,6 +4413,8 @@ def describe(pl):
                      % ", ".join(pl["game_seasons"]))
     if pl["leagues"] and not own_places(pl):
         lines.append("  no European places: the new leagues send nobody to Europe")
+    if pl.get("cwc32"):
+        lines.append("  Club World Cup: 32 clubs, 8 groups of 4, knockout regulation 200 (experimental)")
     if not pl.get("uecl") and any(e[2] in (2, 12) for e in own_places(pl)):
         lines.append("  NOTE: Conference League places, but the world gets no Conference League")
     for p in pl["leagues"]:
@@ -5235,6 +5263,8 @@ def build(pl, base, game, replace=False, log=print):
     if splits:
         import mksplit
         args = ["--base", db, "--out", tmp]
+        if pl.get("cwc32"):
+            args += ["--reserve", str(mkcwc.CWC_KO)]
         for p in splits:
             s = p["split"]
             args += ["--split", "%d:%dx%d:%s%s" % (p["rid"], p["clubs"], s["legs"],
@@ -5254,7 +5284,7 @@ def build(pl, base, game, replace=False, log=print):
 
     lap("faces")
     rounds = qual_rounds(pl)
-    uecl, qlines = europe(tmp, db, log, bool(pl.get("uecl")), pl.get("uecl_name"), rounds)
+    uecl, qlines = europe(tmp, db, log, bool(pl.get("uecl")), pl.get("uecl_name"), rounds, reserved=cwc_reserved(pl))
     national_cups(pl, tmp, db, log)
     game_super_cups(pl, tmp, db, log)
     resolve_new_league_stage_cup_winners(pl)
@@ -5265,7 +5295,7 @@ def build(pl, base, game, replace=False, log=print):
                                                        {e[1] for e in c["entry"] if e[0] == "cup"} if own_cup.get(r)]
     prepare_sudamericana_first(pl, tmp, db, log)
     ccups = continental((pl.get("ccups") or []) + hc, tmp, db, log, alt_from(pl), pl.get("prev_cup_ids"),
-                        pl.get("low_cids"))
+                        pl.get("low_cids"), reserved=cwc_reserved(pl))
     ccups += sudamericana_first_line(pl)
     ccups += sudamericana_playoffs(pl, tmp, db, log)
     ccups += libertadores_qualifying(pl, tmp, db, log)
@@ -5281,6 +5311,11 @@ def build(pl, base, game, replace=False, log=print):
         ccups.append(confed_line(confed))
     for c, h in zip(hc, pl.get("home_cups") or []):
         h["cid"] = c["cid"]                            # for its emblem (pictures)
+    if pl.get("cwc32"):
+        try:
+            mkcwc.build(db, tmp, log=log)
+        except ValueError as e:
+            raise BuildError("cwc32: %s" % e) from e
     rename_competitions(pl, db, log)
 
     # the world file: the tables' own reading (fl26world.from_tables), with what the recipe
@@ -6130,7 +6165,7 @@ def qual_rounds(pl):
     return fl26world.pick_rounds(uefa, bool(pl.get("uecl")))
 
 
-def europe(root, db, log=print, uecl=True, name=None, rounds=()):
+def europe(root, db, log=print, uecl=True, name=None, rounds=(), reserved=()):
     """the European cups of the world being built (tables in <db>, the world folder <root>): the
     Champions League and Europa League league phase as one group of 36, then (uecl) mkuecl's
     clone of the Europa League, mkeuropo's play-offs, and the qualifying rounds in front of them
@@ -6160,7 +6195,7 @@ def europe(root, db, log=print, uecl=True, name=None, rounds=()):
     qlines = []
     if extra:
         try:
-            qlines = mkeuropo.qualifying(db, root, extra, free_comp_ids(db)[1], log=log)
+            qlines = mkeuropo.qualifying(db, root, extra, free_comp_ids(db, reserved=reserved)[1], log=log)
         except SystemExit as e:
             raise BuildError("qualifying rounds: %s" % e)
     return clubs, qlines
@@ -6180,7 +6215,7 @@ def pinned_ids(pl, db, key):
     (pl["prev_cup_ids"]), and no other cup's old ids (audit 12.10.: a league added in front gave
     every cup after it new ids, and a career holds them)"""
     want = pl.get("prev_cup_ids") or {}
-    cids, regs = free_comp_ids(db, low=pl.get("low_cids"))
+    cids, regs = free_comp_ids(db, reserved=cwc_reserved(pl), low=pl.get("low_cids"))
     mine = want.get(key) or {}
     others_c = {w.get("cid") for k, w in want.items() if k != key}
     others_r = {v for k, w in want.items() if k != key for f, v in w.items() if f != "cid"}
@@ -6730,7 +6765,7 @@ def game_super_cups(pl, root, db, log=print):
                if s["calendar"] else ""))
 
 
-def continental(cups, root, db, log=print, start=None, want=None, low=False):
+def continental(cups, root, db, log=print, start=None, want=None, low=False, reserved=()):
     """build the planned continental cups (ccup_plan) with mkccup.py into the world's tables in
     <db>, with ids nothing in them uses -- a cup's own of the last Build first (want, the plan's
     prev_cup_ids); returns the world file's ccup lines"""
@@ -6738,7 +6773,7 @@ def continental(cups, root, db, log=print, start=None, want=None, low=False):
         return []
     import mkccup
     want = want or {}
-    all_c, all_r = free_comp_ids(db, low=low)
+    all_c, all_r = free_comp_ids(db, reserved=reserved, low=low)
     pin_c = {w.get("cid") for w in want.values()}
     pin_r = {v for w in want.values() for f, v in w.items() if f != "cid"}
     cids = [c for c in all_c if c not in pin_c]
