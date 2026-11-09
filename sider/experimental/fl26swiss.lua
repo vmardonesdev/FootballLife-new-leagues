@@ -142,9 +142,21 @@ local function read_world(ctx)
   local f = io.open(path, "r")
   if not f then return nil end
   local leagues, splits, uefa, ccups, dlike, qrounds, lpres = {}, {}, {}, {}, {}, {}, {}
+  local cq = nil
   confed = {}
   CUPDRAW = { all = 1 }
   for line in f:lines() do
+    local cv, cd = line:match("^%s*concacaf%s+(%d+)%s+data=([%d,]+)%s*$")
+    if line:match("^%s*concacaf%s") then
+      if not cv or tonumber(cv) ~= 1 or cq then error("CONCACAF: invalid/duplicate runtime contract; rebuild the world") end
+      cq = {}
+      for value in cd:gmatch("%d+") do
+        local n = tonumber(value)
+        if n > 65535 then error("CONCACAF: runtime contract word exceeds uint16") end
+        cq[#cq + 1] = n
+      end
+      if #cq < 7 or cq[1] ~= 1 then error("CONCACAF: unsupported runtime contract") end
+    end
     local lr, lrest = line:match("^%s*lpre%s+(%d+)(.*)$")
     if lr then
       local L = { tonumber(lr), tonumber(lrest:match("cup=(%d+)") or 0), tonumber(lrest:match("fill=(%d+)") or 0), {}, {} }
@@ -259,7 +271,7 @@ local function read_world(ctx)
     end
   end
   f:close()
-  return leagues, splits, uefa, ccups, dlike, qrounds, lpres
+  return leagues, splits, uefa, ccups, dlike, qrounds, lpres, cq
 end
 
 -- `rcal <reg> <first> <last> <break from> <break to> <days> <also> [eu]` lines of the world file
@@ -432,6 +444,7 @@ function m.init(ctx)
     typedef void (*fl26_swiss_ko_tick_t)(void);
     typedef int  (*fl26_swiss_access_t)(const uint16_t*, int);
     typedef int  (*fl26_swiss_first_t)(const uint32_t*, int);
+    typedef int  (*fl26_swiss_concacaf_version_t)(void);
   ]])
 
   local sep = string.char(92)
@@ -453,7 +466,18 @@ function m.init(ctx)
   for i, r in ipairs(REGS) do regbuf[i - 1] = r end
 
   local base = ffi.cast("uint64_t", ffi.C.GetModuleHandleA(nil))
+  -- Fail before installing hooks when this world's contract cannot be executed.
+  local world, splits, uefa, ccups, dlike, qrounds, lpres, cq = read_world(ctx)
+  local cqload = nil
+  if cq then
+    local version = ffi.C.GetProcAddress(h, "fl26_swiss_concacaf_version")
+    cqload = ffi.C.GetProcAddress(h, "fl26_swiss_concacaf")
+    if version == nil or cqload == nil or tonumber(ffi.cast("fl26_swiss_concacaf_version_t", version)()) ~= 1 then
+      error("CONCACAF: incompatible fl26swiss.dll; contract v1 required. Do not load this career.")
+    end
+  end
   local status = tonumber(install(base, regbuf, #REGS))
+  if cq and status ~= 0 then error("CONCACAF: required native installation failed (" .. status .. "); do not load a career") end
   if status == 0 then
     local pu = ffi.C.GetProcAddress(h, "fl26_swiss_uecl")
     if pu ~= nil then
@@ -462,7 +486,6 @@ function m.init(ctx)
       ffi.cast("fl26_swiss_uecl_t", pu)(ubuf, #UECL)
     end
     -- the leagues whose calendar follows their own size: the world file's, when there is one
-    local world, splits, uefa, ccups, dlike, qrounds, lpres = read_world(ctx)
     if world then
       if #qrounds > 0 then
         local pq = ffi.C.GetProcAddress(h, "fl26_swiss_qrounds")
@@ -704,6 +727,13 @@ function m.init(ctx)
       end
       if #ccups == 0 then
         load_lpres()
+      end
+      if cq then
+        local buf = ffi.new("uint16_t[?]", #cq)
+        for i, v in ipairs(cq) do buf[i - 1] = v end
+        local accepted = tonumber(ffi.cast("fl26_swiss_access_t", cqload)(buf, #cq))
+        if accepted ~= 1 then error("CONCACAF: DLL rejected contract (" .. accepted .. "); do not load a career") end
+        log("fl26swiss: CONCACAF contract v1 loaded: 22 preliminary entrants + 5 direct")
       end
       -- each country's confederation: the Club World Cup (with continental cups of ours) and the
       -- board objective of a club of ours outside UEFA (GitHub #43, any world)

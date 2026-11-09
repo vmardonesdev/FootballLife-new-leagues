@@ -35,6 +35,7 @@ tables (`python tools/fl26world.py --root <world>`), but it only knows `league`,
 | `uecl` | `uecl <team id> ...` | `leaguebuilder.europe` (`mkuecl`) | not read yet: fl26swiss uses its own list |
 | `ccup` | `ccup 226 ko=226 groups=0 entry=17:1,... fill=253 national=1 days=... name=...` | `leaguebuilder.continental` (via `mkccup`) | fl26swiss (`fl26_swiss_ccup`, `_ccup_opts`, `_ccup_alt`) |
 | `lpre` | `lpre 227 cup=226 fill=226 days=246,249 entry=...` | `leaguebuilder.continental` (`mkeuropo.prerounds`) | fl26swiss (`fl26_swiss_lpre`) |
+| `concacaf` | `concacaf 1 data=<versioned uint16 source/place contract>` | `leaguebuilder.build_concacaf` (`mkconcacaf.generate`) | matching Lua + DLL v1; required, never silently ignored. See [concacaf.md](concacaf.md). |
 | `confed` | `confed <flag>:<code>,...` | `leaguebuilder.confed_line` | fl26swiss (`fl26_swiss_confed`) |
 | `dates` | `dates 203 like=23` | `leaguebuilder.dates_lines` | fl26swiss (`fl26_swiss_datelike`) |
 | `gsuper` | `gsuper 255 league=67 cup=68 region=18 conf=4` | `leaguebuilder.gsuper_lines` | fl26joindll -> fl26join.dll (`fl26_join_builder_extra`, `_builder_conf`), fl26swiss (`fl26_swiss_calendar_supercups`) |

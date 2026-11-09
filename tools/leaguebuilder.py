@@ -76,7 +76,13 @@ which league sits above -- and nothing about ids:
               below; for game_europe the country's cup in the game), its place going down the
               league when the winner already has one or there is none yet -- for 6..14 too since
               0.2.0 (#95). 0..5 and 10..12 are written as uefa lines of the world file, after the shipped
-              leagues' places (fl26world.uefa_places); 6..9, 13..15 build that cup (see ccup_plan)
+              leagues' places (fl26world.uefa_places); 6..9, 14..15 build that cup (see ccup_plan).
+              Target 13 requests the modern 27-team CONCACAF engine; Build needs runtime
+              contract v1 and disabled feeders (docs/developers/fork/concacaf.md).
+  concacaf    optional recipe-level object: modules {leagues_cup, central_american_cup,
+              caribbean_cup: bool}, all false by default; sources {domestic role: [reg ids
+              or new league names]}. Enabled regional modules cannot build until result
+              providers exist. Leagues Cup requires MLS and Liga MX; no format selector
   cup         optional, a top division of a new country only: true gives the country a national
               cup (a knockout copied from a shipped one, see NATIONAL_CUPS). The game fills a
               domestic cup with the region's first league and the league below it, and a cup's
@@ -272,6 +278,7 @@ import mkleague as M
 import mkworld as W
 import mkcoaches
 import mkuecl
+import concacaf
 import fl26world
 import siderdir
 import flpaths
@@ -938,7 +945,7 @@ def has_edits(r):
                 or r.get("uecl_name") or r.get("uecl_logo") or r.get("caf_super_cup_logo")
                 or r.get("samerica_super_cup_logo") or r.get("samerica_super_cup_first")
                 or r.get("saudi_august") or r.get("game_seasons") or r.get("editable_kits") or r.get("squad") or r.get("country_order")
-                or r.get("conmebol")) \
+                or r.get("conmebol")) or "concacaf" in r \
         or r.get("uecl") is False or r.get("caf_super_cup") is False or r.get("samerica_super_cup") is False
 
 
@@ -1022,7 +1029,7 @@ RECIPE_SETTINGS = ("game_europe", "uefa_seed", "uefa_rank", "europe_first", "gam
                    "ccup_names", "ccup_logos", "caf_super_cup", "caf_super_cup_logo", "cup_draw",
                    "country_order", "game_seasons", "saudi_august", "newlife_ids", "newlife_game",
                    "league_order", "packs", "conmebol", "conmebol_associations", "samerica_super_cup",
-                   "samerica_super_cup_logo", "samerica_super_cup_first", "sudamericana_calendar")
+                   "samerica_super_cup_logo", "samerica_super_cup_first", "sudamericana_calendar", "concacaf")
 
 
 def is_plan(r):
@@ -1181,6 +1188,8 @@ def settings_from_plan(pl, base):
     itself from (fl26world.CCUPS) is found by the field's order (ccup_given); one that the order
     does not tell is lost."""
     out = {}
+    if (pl.get("concacaf") or {}).get("configuration") is not None:
+        out["concacaf"] = copy.deepcopy(pl["concacaf"]["configuration"])
     name_of = {p["rid"]: p["name"] for p in pl.get("leagues") or []}
 
     def club(ref):
@@ -1257,6 +1266,10 @@ def settings_from_plan(pl, base):
         for c in cups:
             n = c.get("number")
             fill = next((set(map(tuple, f)) for c2, _n, _code, _conf, f in fl26world.CCUPS if c2 == n), None)
+            if n == concacaf.TARGET:
+                # Old plans without settings cannot distinguish an explicit MLS place
+                # from the old automatic padding. Do not migrate twelve implicit berths.
+                fill = set(fl26world.LEGACY_CONCACAF_FILL)
             if fill is None:
                 continue
             given, maybe = [], []
@@ -1265,7 +1278,7 @@ def settings_from_plan(pl, base):
                 if e[0] == "ko" or lg in name_of or lg not in tops:
                     continue
                 (maybe if e in fill else given).append(e)
-            if maybe:
+            if maybe and n != concacaf.TARGET:
                 given += ccup_given(n, c.get("entry") or [], ours, given, maybe)
             for e in given:
                 ge.setdefault(str(entry_league(e)), []).append([CUP_WINNER if e[0] == "cup" else int(e[1]), int(n)])
@@ -2123,6 +2136,13 @@ def away_leagues(prev, names):
 def plan(recipe, base, prev=None):
     """the plan of `recipe`; `prev` is the plan of the world's last Build, whose ids the
     leagues built then keep (prev_pins)"""
+    if "concacaf" in recipe:
+        try:
+            if recipe["concacaf"] is None:
+                raise concacaf.QualificationError("concacaf must be an object")
+            concacaf.configuration(recipe["concacaf"])
+        except concacaf.QualificationError as e:
+            raise BuildError(str(e)) from e
     use_squad(recipe)
     pins = prev_pins(prev)
     comp, regs = M.load(base, "Competition.bin"), M.load(base, "CompetitionRegulation.bin")
@@ -2598,7 +2618,17 @@ def plan(recipe, base, prev=None):
     room = {p["rid"]: p["clubs"] for p in out}
     room.update({r: entries_of(base, regrow[r][M.R_CID]) for r, _p, _c, _a in gcc})
     room.update({row["source"]: row["capacity"] for row in arows})
-    cups, notes = ccup_plan(continental_places, room)
+    concacaf_plan = None
+    if "concacaf" in recipe or any(c == concacaf.TARGET for _r, _p, c, _a in continental_places):
+        try:
+            config, sources = concacaf_sources(recipe, base, out, regrow, region_of_cid)
+            concacaf_plan = concacaf.plan(
+                config, sources,
+                [{"source": str(r), "rank": pos} for r, pos, c, _a in continental_places if c == concacaf.TARGET],
+                ((prev or {}).get("cup_ids") or {}).get("ccup:" + concacaf.CODE))
+        except concacaf.QualificationError as e:
+            raise BuildError(str(e)) from e
+    cups, notes = ccup_plan(continental_places, room, concacaf_plan)
     if suda_first and not any(c["number"] == SUDAM for c in cups):
         raise BuildError("modern Sudamericana first stage needs the Copa Sudamericana group cup")
     if suda_first:
@@ -2650,6 +2680,7 @@ def plan(recipe, base, prev=None):
             "libq": libq,
             "modern_libertadores_access": access_recipe.get("_modern_libertadores_access"),
             "suda_first": suda_first,
+            "concacaf": concacaf_plan,
             "uefa_seed": uefa_seed(recipe, out, regrow, region_of_cid),
             "assoc_rank": assoc_rank(out, base),
             "away_leagues": away_leagues(prev, names + sorted(used)),   # a renamed league's old name is its own
@@ -3963,7 +3994,7 @@ def ccup_short(own, clubs, notes):
     Champions League and 2 Confederation Cup places, Alikhaled_727 2026-09-29: neither cup was
     built, now the Champions League takes all four), then the next positions of its own leagues
     that no place of any competition claims, a league at a time (`clubs`: {league: its clubs})"""
-    places = {c: sorted((ccup_entry(r, pos, a) for r, pos, comp, a in own if comp == c), key=entry_key)
+    places = {c: sorted((ccup_entry(r, pos, a) for r, pos, comp, a in own if comp == c and c != concacaf.TARGET), key=entry_key)
               for c, _n, _code, _conf, _fill in fl26world.CCUPS}
     claimed = {}
     for r, pos, _comp, _a in own:
@@ -4045,7 +4076,77 @@ def apart(field):
     return field
 
 
-def ccup_plan(own, clubs=None):
+def require_competition_runtime(pl):
+    """Reject legacy plans and unavailable feeders before any staging/game writes."""
+    if pl.get("concacaf") or any(c.get("number") == concacaf.TARGET or c.get("code") == concacaf.CODE
+                                  for c in pl.get("ccups") or []):
+        import mkconcacaf
+        try:
+            mkconcacaf.supported(pl.get("concacaf") or {})
+        except concacaf.QualificationError as e:
+            raise BuildError(str(e)) from e
+
+
+def check_concacaf_runtime(pl):
+    if not pl.get("concacaf"):
+        return
+    import mkconcacaf
+    try:
+        src = os.path.join(pack_dir(), "modules")
+        mkconcacaf.check_runtime(os.path.join(src, "fl26swiss.dll"), os.path.join(src, "fl26swiss.lua"))
+    except (OSError, ValueError, struct.error) as e:
+        raise BuildError("CONCACAF runtime compatibility: %s" % e) from e
+
+
+def concacaf_sources(recipe, base, leagues, regrow, region_of_cid):
+    """Adapt existing domestic access data to the pure planner; no new fixtures or ids.
+
+    Use actual table countries, not hardcoded MLS regulation 51: FL27 and database mods
+    move it. National-cup references stay symbolic until the ordinary cup allocator runs.
+    """
+    config = copy.deepcopy(recipe.get("concacaf") or {})
+    game = game_leagues(base)
+    countries = game_league_countries(base, game)
+    conf = game_league_confeds(base, game)
+    rows, aliases = {}, {}
+
+    def add(rid, country, capacity, teams=None, cup=None):
+        key = str(rid)
+        low = country.lower()
+        role = "liga_mx" if low == "mexico" else "mls" if low in ("usa", "united states", "united states of america") else "canadian_premier" if low == "canada" else None
+        source = {"id": key, "kind": "league", "region": concacaf.region(country), "country": country,
+                  "conf": 6, "capacity": capacity, "roles": [role] if role else []}
+        if teams is not None:
+            source["teams"] = list(teams)
+        rows[key] = source
+        if cup:
+            cr = {"id": "cup:" + key, "kind": "cup", "region": source["region"], "country": country,
+                  "conf": 6, "capacity": 0, "roles": ["canadian_championship"] if low == "canada"
+                  else ["us_open_cup"] if role == "mls" else []}
+            rows[cr["id"]] = cr
+            if type(cup) is int:
+                aliases[str(cup)] = cr["id"]
+                cr["runtime_reg"] = cup
+
+    for rid, cid, _name, teams in game:
+        if conf.get(cid) == 6 and rid in countries and M.get_tier(regrow[rid]) == 1:
+            add(rid, countries[rid], len(teams), teams,
+                home_cup(regrow, region_of_cid, region_of_cid.get(cid)))
+    import mkflags
+    cty = mkflags.countries(mkflags.table("Country", [base]))
+    cconf = confederations(base)
+    for league in leagues:
+        if cconf.get(league["country"]) != 6 or league.get("above") or league.get("exhibition"):
+            continue
+        country = (cty.get(league["country"]) or ("",))[0]
+        add(league["rid"], country, league["clubs"], cup=bool(league.get("cup")))
+        aliases[league["name"]] = str(league["rid"])
+    for role, refs in (config.get("sources") or {}).items():
+        config["sources"][role] = [aliases.get(str(r), str(r)) for r in refs]
+    return config, list(rows.values())
+
+
+def ccup_plan(own, clubs=None, concacaf_plan=None):
     """the continental cups the new leagues' places lead to (competitions 6..9, 13..15: fl26world.CCUPS),
     each only when some place names it. The field is the places of the world's own leagues and,
     where the cup has them, shipped leagues' places after those: the biggest of 32/16/8/4 clubs
@@ -4053,10 +4154,19 @@ def ccup_plan(own, clubs=None):
     come -- every league's best place in pot 1, then the next ... -- so two clubs of a league do
     not start in the same pot. 8 or more clubs play groups of four, then a knockout of the first
     two; 4 play a knockout. A cup short of four is helped first (ccup_short). Returns
-    ([{number, name, code, conf, groups, entry}], notes)."""
+    ([{number, name, code, conf, groups, entry}], notes). Target 13 instead returns
+    a pending 27-team descriptor; its source places live in the dedicated concacaf plan."""
     cups, notes = [], []
     places = ccup_short(own, clubs or {}, notes)
     for c, name, code, conf, fill in fl26world.CCUPS:
+        if c == concacaf.TARGET:
+            if concacaf_plan is not None or any(comp == c for _r, _p, comp, _a in own):
+                cup = {"number": c, "name": name, "code": code, "conf": conf, "groups": 0,
+                       "entry": [], "format": concacaf.FORMAT, "participants": 27, "runtime_ready": False}
+                cup.update({k: v for k, v in ((concacaf_plan or {}).get("previous_ids") or {}).items()
+                            if k in ("cid", "reg", "ko", "pre_reg")})
+                cups.append(cup)
+            continue
         mine = places[c]
         if not mine:
             continue
@@ -4463,6 +4573,11 @@ def describe(pl):
                     if p.get("calendar") or p.get("follows_calendar")
                     else "its date follows %s" % SUPER_CUP_LIKE))
     for cup in pl.get("ccups") or []:
+        if cup.get("number") == concacaf.TARGET:
+            lines.append("  %s: 27 places, 22 in Round One (11 two-leg ties), 5 direct to Round of 16; "
+                         "single-match final. Runtime contract v1 required; NEW CAREER REQUIRED; feeder modules must be disabled."
+                         % cup["name"])
+            continue
         if cup.get("kind") == "super":
             if cup.get("code") == "FL_SAMRC":
                 lines.append("  %s: the previous Libertadores and Sudamericana winners, one "
@@ -4774,6 +4889,8 @@ def club_order(pl, ents, regs, raw, top_id, log=print):
 
 
 def build(pl, base, game, replace=False, log=print):
+    require_competition_runtime(pl)
+    check_concacaf_runtime(pl)
     flpaths.use_game(game, siderdir.find(game))   # the exe readers (caltab, region headings) look here
     use_squad(pl)                                 # World options > Players per new club
     out = os.path.join(siderdir.find(game), "livecpk", pl["world"])
@@ -5264,11 +5381,12 @@ def build(pl, base, game, replace=False, log=print):
         c["winners"] = list(c.get("winners") or []) + [[r, own_cup[r]] for r in
                                                        {e[1] for e in c["entry"] if e[0] == "cup"} if own_cup.get(r)]
     prepare_sudamericana_first(pl, tmp, db, log)
-    ccups = continental((pl.get("ccups") or []) + hc, tmp, db, log, alt_from(pl), pl.get("prev_cup_ids"),
+    ccups = continental([c for c in pl.get("ccups") or [] if c.get("number") != concacaf.TARGET] + hc, tmp, db, log, alt_from(pl), pl.get("prev_cup_ids"),
                         pl.get("low_cids"))
     ccups += sudamericana_first_line(pl)
     ccups += sudamericana_playoffs(pl, tmp, db, log)
     ccups += libertadores_qualifying(pl, tmp, db, log)
+    ccups += build_concacaf(pl, tmp, db, log)
     modern_conmebol_no_away_goals(pl, db, log)
     for c in (pl.get("ccups") or []) + hc:
         pl.setdefault("cup_ids", {})["ccup:" + (c.get("code") or c["name"])] = {
@@ -6215,6 +6333,32 @@ def helper_ids(pl, db, key, nregs=1):
     return cids[0], got
 
 
+def build_concacaf(pl, root, db, log=print):
+    if not pl.get("concacaf"):
+        return []
+    import mkconcacaf
+    cup = next(c for c in pl["ccups"] if c.get("number") == concacaf.TARGET)
+    cid, (ko,) = helper_ids(pl, db, "ccup:" + concacaf.CODE)
+    key = "concacaf:" + mkconcacaf.HELPER_CODE
+    cids, regs = pinned_ids(pl, db, key)
+    cids, regs = [c for c in cids if c != cid], [r for r in regs if r != ko]
+    if not cids or not regs:
+        raise out_of_ids("CONCACAF Round One")
+    helper, pre = cids[0], regs[0]
+    pl.setdefault("cup_ids", {})[key] = {"cid": helper, "reg": pre}
+    cups = {"cup:" + str(p["rid"]): (p.get("own_cup") or {}).get("reg")
+            for p in pl["leagues"] if p.get("own_cup")}
+    try:
+        lines = mkconcacaf.generate(db, root, pl["concacaf"], cid, ko, helper, pre,
+                                    name=cup["name"], cup_regs=cups, log=log)
+    except (concacaf.QualificationError, SystemExit) as e:
+        raise BuildError("CONCACAF: %s" % e) from e
+    cup.update(cid=cid, reg=ko, ko=ko, runtime_ready=True, runtime_version=1, pre_reg=pre)
+    pl["concacaf"]["runtime_ready"] = True
+    pl["concacaf"]["runtime_version"] = 1
+    return lines
+
+
 def free_comp_ids(db, reserved=(), low=False):
     """competition ids and regulation ids (from CCUP_REG_FROM) nothing in the world's tables in
     <db> uses, nor anything kept for later; `low`: with the ids under 130 (low_cids)"""
@@ -6734,6 +6878,7 @@ def continental(cups, root, db, log=print, start=None, want=None, low=False):
     """build the planned continental cups (ccup_plan) with mkccup.py into the world's tables in
     <db>, with ids nothing in them uses -- a cup's own of the last Build first (want, the plan's
     prev_cup_ids); returns the world file's ccup lines"""
+    require_competition_runtime({"ccups": cups})
     if not cups:
         return []
     import mkccup
@@ -7139,6 +7284,10 @@ def cup_emblems(pl):
     for c in (pl.get("ccups") or []) + (pl.get("home_cups") or []) + (pl.get("game_supers") or []):
         if c.get("cid"):
             out.append((c["cid"], c["name"], c.get("logo")))
+    helper = (pl.get("cup_ids") or {}).get("concacaf:FL_CCC_R1") or {}
+    if helper.get("cid"):
+        primary = next((c for c in pl.get("ccups") or [] if c.get("number") == concacaf.TARGET), {})
+        out.append((helper["cid"], "CONCACAF Round One", primary.get("logo")))
     # the modern CONMEBOL helper cups (helper_ids) wear the emblem of the cup they are a round of:
     # with none of their own, the Sudamericana's first stage showed no emblem in the fixtures (B220,
     # antonimus 23.10.)
@@ -7763,6 +7912,15 @@ def switch_on(world, game, log=print, redraw=False):
                          % (root, world.rsplit(".", 1)[0]))
     if not os.path.exists(wf):
         raise BuildError("%s has no %s -- not a league builder world" % (root, MARK))
+    with open(wf, encoding="utf-8") as f:
+        needs_concacaf = any(re.match(r"^\s*concacaf\s", line) for line in f)
+    if needs_concacaf:
+        import mkconcacaf
+        modules = os.path.join(siderdir.find(game), "modules")
+        try:
+            mkconcacaf.check_runtime(os.path.join(modules, "fl26swiss.dll"), os.path.join(modules, "fl26swiss.lua"))
+        except (OSError, ValueError, struct.error) as e:
+            raise BuildError("CONCACAF activation refused: install the matching v1 modules first: %s" % e) from e
     import siderroot
     siderroot.INI = os.path.join(siderdir.find(game), "sider.ini")
     if not os.path.exists(siderroot.INI):

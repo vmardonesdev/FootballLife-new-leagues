@@ -27,6 +27,7 @@ Rules that hold for every key:
 |---|---|---|---|
 | `world` | text, starts with `_FL26` | the world's folder name in `livecpk` (`load_recipe` refuses others) | `world` |
 | `leagues` | list | the new leagues, and the "others" groups (below) | `league`, `split` ... |
+| `concacaf` | object | Modern 27-team target-13 cup; optional `modules` booleans and domestic `sources` lists. All modules default off; enabled feeders currently cannot build. Requires runtime contract v1 and a new career. Existing target-13 assignments also request it. See [concacaf.md](concacaf.md). | `concacaf 1 data=...`, `ccup`, `lpre` |
 | `edits` | object | changes to the game's own clubs and leagues: `clubs` {team id: {name, abbr}}, `leagues` {reg id: {name}}, `competitions` {competition id: {name, logo}}, `swaps` [[team id, team id], ...] | tables only |
 | `players` | object | per-club player changes (see `lbplayers.py`: `edits`, `add`, `remove`, `join`, `id`, `face`, `portrait`, `coach_portrait`, `stadium`) | `newfaces`, `faceapp` |
 | `uecl` | bool, default true | the Conference League and the reshaped 36-club league phases | `uecl`, `qround` |
