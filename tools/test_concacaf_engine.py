@@ -1,5 +1,7 @@
 """Offline engine tests. CONCACAF_TEST_BASE enables table/build tests;
-CONCACAF_TEST_DLL points at the newly compiled DLL. Never accesses an installed game.
+CONCACAF_TEST_DLL points at the newly compiled DLL. CONCACAF_TEST_FL27_EXE
+optionally supplies an FL27 executable fixture to copy for read-only layout checks;
+FL26_CIDWIDE=1 enables its extended-ID path. The executable is never launched.
 """
 import contextlib
 import copy
@@ -24,6 +26,7 @@ REPO = Path(__file__).resolve().parent.parent
 BASE = os.environ.get("CONCACAF_TEST_BASE")
 DLL = os.environ.get("CONCACAF_TEST_DLL")
 LUA = REPO / "sider/experimental/fl26swiss.lua"
+FL27_EXE = os.environ.get("CONCACAF_TEST_FL27_EXE")
 
 
 class ContractTests(unittest.TestCase):
@@ -70,11 +73,19 @@ class DatabaseTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory(prefix="concacaf-engine-")
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
+        self.game = self.root / "game"
+        self.game.mkdir()
+        if FL27_EXE:
+            shutil.copyfile(FL27_EXE, self.game / "FL_2027.exe")
+        B.use_game(str(self.game))
+        self.addCleanup(B.use_game, None)
         self.recipe = {"world": "_FL26TestConcacafEngine", "leagues": [], "concacaf": {}}
         self.plan = B.plan(self.recipe, BASE)
 
     def generate(self):
         cids, regs = B.free_comp_ids(BASE)
+        if FL27_EXE and B.cid_wide(str(self.game)):
+            cids = [cid for cid in cids if cid > 255]
         self.ids = cids[0], regs[0], cids[1], regs[1]
         with contextlib.redirect_stdout(io.StringIO()):
             return G.generate(BASE, str(self.root), self.plan["concacaf"], *self.ids, log=lambda _:None)
@@ -87,7 +98,7 @@ class DatabaseTests(unittest.TestCase):
         before = M.load(BASE, "CompetitionRegulation.bin")
         self.assertEqual(before, raw[:len(before)])
         rows = [raw[i:i+M.REG] for i in range(0,len(raw),M.REG)]
-        mine = [r for r in rows if r[M.R_CID] == helper]
+        mine = [r for r in rows if M.reg_cid(r) == helper]
         self.assertEqual(12, len(mine))
         self.assertEqual({pre+1024*i for i in range(12)}, {int.from_bytes(r[2:4],"little") for r in mine})
         self.assertTrue(all((r[M.R_TEAMS]&63)==22 for r in mine))
@@ -98,7 +109,7 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(1, (flags>>9)&7)  # two legs except final
         self.assertFalse(flags & ((1<<29)|(1<<28)))
         entries = M.load(str(db),"CompetitionEntry.bin")
-        teams = [int.from_bytes(entries[i:i+4],"little") for i in range(0,len(entries),M.ENT) if entries[i+M.E_CID]==cid]
+        teams = [int.from_bytes(entries[i:i+4],"little") for i in range(0,len(entries),M.ENT) if M.ent_cid(entries, i) == cid]
         self.assertEqual(27, len(set(teams)))
         self.assertEqual(3, len(lines))
         self.assertTrue(lines[-1].startswith("concacaf 1 data="))
@@ -119,7 +130,7 @@ class DatabaseTests(unittest.TestCase):
     @unittest.skipUnless(DLL, "set CONCACAF_TEST_DLL")
     def test_build_round_trip_and_stable_ids(self):
         # Read the staged runtime; Build itself writes only a temporary fake game.
-        game = str(self.root / "game")
+        game = str(self.game)
         def check(_): G.check_runtime(DLL,LUA)
         def build(recipe, prev=None):
             pl = B.plan(recipe,BASE,prev)
@@ -148,7 +159,7 @@ class DatabaseTests(unittest.TestCase):
             with self.assertRaisesRegex(B.BuildError,"runtime compatibility"):
                 B.build(self.plan,BASE,str(self.root/"game"))
             access.assert_not_called()
-        self.assertFalse((self.root/"game").exists())
+        self.assertEqual(["FL_2027.exe"] if FL27_EXE else [], sorted(os.listdir(self.game)))
         shutil.copy2(DLL,pack/"fl26swiss.dll")
         with patch.object(B,"pack_dir",return_value=str(pack.parent)):
             B.check_concacaf_runtime(self.plan)

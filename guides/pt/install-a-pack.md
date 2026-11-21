@@ -6,8 +6,9 @@
 
 | Você tem | O que clicar |
 |---|---|
-| um mundo em `.zip` (Modpack, Europack, o mundo de um amigo) | **2. Meu mundo** → **+ Adicionar...** → **Escolher um arquivo...** → **Adicionar** → **Instalar o mundo**. Não tem Build: ele está no jogo quando aparece **Pronto para jogar**. Depois comece uma Master League NOVA. [Caminho A](#caminho-a-um-mundo-pronto-um-zip) |
+| um mundo em `.zip` (Modpack, Europack, o mundo de um amigo) | **2. Meu mundo** → **+ Adicionar...** → **Escolher um arquivo...** → **Instalar o mundo**. Não tem Build: ele está no jogo quando aparece **Pronto para jogar**. Depois comece uma Master League NOVA. [Caminho A](#caminho-a-um-mundo-pronto-um-zip) |
 | um pacote de liga `.fl26pack` | **2. Meu mundo** → **+ Adicionar...** → **Escolher um arquivo...** → **Adicionar** → aba **Construção** → **Construir e instalar**. Depois comece uma Master League NOVA. [Caminho C](#caminho-c-um-pacote-de-liga-fl26pack) |
+| `GigaPack-1.0.zip` (GigaPack, um mundo pronto só para o Football Life 2027) | É um zip de mundo: o mesmo que a primeira linha, ou **1. Início** → **Importar um zip de mundo** → **Instalar o mundo**. Não descompacte. Downloads, md5 e todos os passos: [GigaPack](../../docs/gigapack.md) (em inglês) |
 | nada, quero escolher as ligas eu mesmo | [Criar suas próprias ligas e pacotes](make-your-own-leagues.md) |
 
 Primeira vez no Mod Studio? Faça antes os passos 1 a 3 abaixo, uma vez só.
@@ -44,7 +45,7 @@ quando o jogo inicia. Olhe a barra de tarefas: nenhuma janela do Football Life, 
 ## Passo 2. Baixe o Mod Studio
 
 1. Abra a [versão mais recente](https://github.com/Matozanato/FootballLife-new-leagues/releases/latest).
-2. Em **Assets**, clique em `FL26ModStudio-<version>.zip` (por exemplo `FL26ModStudio-0.3.0.zip`).
+2. Em **Assets**, clique em `FL26ModStudio-<version>.zip` (por exemplo `FL26ModStudio-0.4.0.zip`).
    É o mesmo download para Football Life 2026 e Football Life 2027.
 3. Clique com o botão direito no zip baixado → **Extrair Tudo...** → escolha uma pasta, por
    exemplo `Documents\FL26 Mod Studio` → **Extrair**.
@@ -112,19 +113,24 @@ Para mudar um Modpack depois (tirar ou pôr um campeonato, clubes, jogadores, un
 **A2.** Clique em **2. Meu mundo**, depois em **+ Adicionar...** (à direita, ao lado das abas).
 
 **A3.** Clique em **Escolher um arquivo...** e escolha o zip. (Ou arraste o zip para essa
-janela.) Uma linha verde começa com `Encontrado: um zip de mundo`. Clique em **Adicionar**: a
-página **Importe seu mundo** abre com o zip.
+janela.) Uma linha verde começa com `Encontrado: um zip de mundo`. Clique em **Instalar o mundo**:
+a página **Importe seu mundo** abre com o zip, olha dentro dele (um Modpack grande leva um ou dois
+minutos) e instala com todas as partes de uma vez. Nessa página você não clica em nada: siga com as
+perguntas do **A5**.
 
 (Dois outros caminhos para a mesma página: **1. Início → Importar um zip de mundo**, ou
-**2. Meu mundo → Mais ▾ → Importar um zip de mundo**, depois escolha o zip.)
+**2. Meu mundo → Mais ▾ → Importar um zip de mundo**, depois escolha o zip. Esses dois não instalam
+na hora: primeiro você vê o **A4** e clica você mesmo em **Instalar o mundo**. Use um deles para
+instalar um mundo sem os uniformes.)
 
-**A4. Você deve ver:** uma linha dizendo o que é, por exemplo `um mundo pronto para jogar
+**A4. Você deve ver** (só pelos dois outros caminhos): uma linha dizendo o que é, por exemplo `um mundo pronto para jogar
 (_FL26Modpack)`, ou `uma versão mais nova do mundo _FL26Modpack que você tem` quando você tem uma
 versão mais antiga, e embaixo quantas ligas tem dentro. As partes (o mundo, uniformes,
 placares ...) estão em **Mais opções: quais partes, nome, ordem das pastas de conteúdo, linhas
 dos map**, todas marcadas. Deixe assim. (Para instalar sem os uniformes, desmarque os uniformes ali.)
 
-**A5.** Clique em **Instalar o mundo**. Se uma versão mais antiga do mesmo mundo já estiver
+**A5.** Pelos dois outros caminhos, clique em **Instalar o mundo** (pelo **+ Adicionar...** ele começa
+sozinho). Se uma versão mais antiga do mesmo mundo já estiver
 instalada (um Modpack anterior), ele pergunta se deve trocar: diga **Sim**. A antiga sai primeiro,
 então nada dela fica para trás; os seus saves não são mexidos. Espere até dizer que terminou. O
 Mod Studio instala os módulos (os desta versão), copia o mundo, coloca o arquivo do mundo onde os
@@ -161,7 +167,7 @@ para essa janela.)
 
 **C3. Você deve ver:** uma linha verde `Encontrado: pacote de campeonatos "..."` com quantas
 ligas e clubes ele tem, e as ligas dele numa lista, cada uma marcada. Desmarque uma liga que você
-não quer. Embaixo da lista: quantas competições o seu mundo vai ter (o jogo tem lugar para 255),
+não quer. Embaixo da lista: quantas competições o seu mundo vai ter (ids até 255 no FL26, até 1023 no FL27),
 e que nada chega ao jogo antes de **Construir e instalar**. Clique em **Adicionar**.
 
 (Os outros caminhos: **2. Meu mundo → Mais ▾ → Pacotes de campeonatos → Adicionar um

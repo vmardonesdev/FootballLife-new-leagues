@@ -10,13 +10,15 @@ int main(int argc, char** argv)
   for (int i=0;i<11;i++) { win[i]=clubs[2*i+1]; matches[i]=2; left[i]=0; }
   assert(cq_handover(direct,clubs,matches,left,win,out));
   int counted[11]={0}, pending[11]={0};
+  unsigned legs[11]={0};
   for (int i=0;i<11;i++) {
-    assert(cq_count_match(clubs,clubs[2*i],clubs[2*i+1],1,counted,pending));
-    assert(cq_count_match(clubs,clubs[2*i+1],clubs[2*i],0,counted,pending));
+    assert(cq_count_match(clubs,clubs[2*i],clubs[2*i+1],1,counted,pending,legs));
+    assert(!cq_count_match(clubs,clubs[2*i],clubs[2*i+1],1,counted,pending,legs));
+    assert(cq_count_match(clubs,clubs[2*i+1],clubs[2*i],0,counted,pending,legs));
     assert(counted[i]==2 && pending[i]==1);
   }
   assert(!cq_handover(direct,clubs,counted,pending,win,out));
-  assert(!cq_count_match(clubs,CLUB(100),CLUB(101),1,counted,pending));
+  assert(!cq_count_match(clubs,CLUB(100),CLUB(101),1,counted,pending,legs));
   for (int i=0;i<11;i++) {
     left[i]=1; assert(!cq_handover(direct,clubs,matches,left,win,out)); left[i]=0;
     matches[i]=1; assert(!cq_handover(direct,clubs,matches,left,win,out)); matches[i]=2;

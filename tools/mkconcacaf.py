@@ -83,7 +83,7 @@ def generate(base, out, pl, cid, ko, helper_cid, pre, name=Q.NAME, cup_regs=None
     comp, regs, ents = (M.load(base, n) for n in ("Competition.bin", "CompetitionRegulation.bin", "CompetitionEntry.bin"))
     cr = [bytearray(comp[i:i+M.COMP]) for i in range(0,len(comp),M.COMP)]
     rr = [bytearray(regs[i:i+M.REG]) for i in range(0,len(regs),M.REG)]
-    if cid == helper_cid or any(c[M.CID_OFF] in (cid,helper_cid) for c in cr):
+    if cid == helper_cid or any(M.comp_cid(c) in (cid, helper_cid) for c in cr):
         raise Q.QualificationError("CONCACAF competition ids are already in use")
     used = {int.from_bytes(r[2:4],"little") for r in rr}
     if used & ({ko} | {pre+1024*i for i in range(12)}):
@@ -93,15 +93,15 @@ def generate(base, out, pl, cid, ko, helper_cid, pre, name=Q.NAME, cup_regs=None
     # UEFA's established mode 1: two legs except a one-match final.
     if template[M.R_TYPE] != 3 or ((rules >> 9) & 7) != 1 or rules & (1 << 29):
         raise Q.QualificationError("unsupported Europa knockout template: expected two legs with single final")
-    c = bytearray(next(c for c in cr if c[M.CID_OFF] == 5))
-    c[M.CID_OFF] = cid
+    c = bytearray(next(c for c in cr if M.comp_cid(c) == 5))
+    M.set_comp_cid(c, cid)
     c[M.REGION_OFF] = M.enc_region(1)
     c[M.FLAG_OFF] = (c[M.FLAG_OFF] & ~7) | 6
     M.put(c,M.CODE_OFF,Q.CODE,M.COMP-M.CODE_OFF)
     r = bytearray(template)
     r[M.R_BELOW:M.R_BELOW+2] = bytes(2)
     r[2:4] = ko.to_bytes(2,"little")
-    r[M.R_CID] = cid
+    M.set_reg_cid(r, cid)
     r[M.R_TEAMS] = (r[M.R_TEAMS] & ~63) | 16
     # No bronze match. Other scoring rules retain the established template.
     rules &= ~(1 << 28)
@@ -109,12 +109,12 @@ def generate(base, out, pl, cid, ko, helper_cid, pre, name=Q.NAME, cup_regs=None
     M.put_names(r,0,name)
     # Static database membership is an isolated first-season preview of all 27.
     preview = copy.deepcopy(pl)
-    cid_of = {int.from_bytes(x[2:4],"little"):x[M.R_CID] for x in rr}
+    cid_of = {int.from_bytes(x[2:4],"little"):M.reg_cid(x) for x in rr}
     for key,s in preview["sources"].items():
         if s["kind"] != "league": continue
-        source_cid = cid_of[int(key)]
+        source_cid = cid_of[int(s.get("membership_reg", key))]
         s["teams"] = [int.from_bytes(e[:4],"little") for e in sorted(
-            (ents[i:i+M.ENT] for i in range(0,len(ents),M.ENT) if ents[i+M.E_CID] == source_cid),
+            (ents[i:i+M.ENT] for i in range(0,len(ents),M.ENT) if M.ent_cid(ents, i) == source_cid),
             key=lambda e:e[M.E_ORDER])]
         s["capacity"] = len(s["teams"])
     field = Q.resolve(preview,first_season=True)
@@ -122,7 +122,7 @@ def generate(base, out, pl, cid, ko, helper_cid, pre, name=Q.NAME, cup_regs=None
     extra = bytearray()
     for i,e in enumerate(field):
         row = bytearray(M.ENT); row[:4] = e["club"].to_bytes(4,"little")
-        row[4:8] = (eid+i+1).to_bytes(4,"little"); row[M.E_CID]=cid; row[M.E_ORDER]=i+1
+        row[4:8] = (eid+i+1).to_bytes(4,"little"); M.set_ent_cid(row, cid); row[M.E_ORDER]=i+1
         extra += row
     with contextlib.redirect_stdout(io.StringIO()):
         M.write_tables(out,comp+c,regs+r,ents+extra)
@@ -134,7 +134,7 @@ def generate(base, out, pl, cid, ko, helper_cid, pre, name=Q.NAME, cup_regs=None
     league = next(int(k) for k,s in sorted(pl["sources"].items()) if s["kind"] == "league")
     # Generic registry supplies dates, knockout rounds, championship retention and teardown.
     # Its fill is explicitly intercepted by the dedicated runtime contract.
-    ccup = "ccup %d ko=%d groups=0 fill=%d days=%s entry=%s name=%s" % (
+    ccup = "ccup %d ko=%d groups=0 comp=13 fill=%d days=%s entry=%s name=%s" % (
         ko,ko,FILL,",".join(map(str,KO_DAYS)),",".join("%d:%d"%(league,i+1) for i in range(16)),name)
     lpre = "lpre %d cup=%d fill=%d days=%s entry=%s" % (
         pre,ko,FILL,",".join(map(str,PRE_DAYS)),",".join("%d:%d"%(league,i+1) for i in range(22)))
@@ -162,10 +162,13 @@ def check_runtime(dll, lua):
         ordinal=struct.unpack_from("<H",raw,offset(oa)+2*i)[0]
         if ordinal>=nf: raise Q.QualificationError("invalid DLL export ordinal")
         exports[name]=struct.unpack_from("<I",raw,offset(fa)+4*ordinal)[0]
-    required={"fl26_swiss_concacaf","fl26_swiss_concacaf_version","fl26_swiss_concacaf_abi"}
+    required = {
+        "fl26_swiss_concacaf", "fl26_swiss_concacaf_version", "fl26_swiss_concacaf_abi",
+        "fl26_swiss_seasonsum", "fl26_swiss_ccup_zone", "fl26_swiss_gsplits",
+    }
     if not required<=exports.keys() or struct.unpack_from("<I",raw,offset(exports.get("fl26_swiss_concacaf_abi",0)))[0]!=ABI:
-        raise Q.QualificationError("CONCACAF needs fl26swiss.dll contract v1; rebuild/repackage the native module")
+        raise Q.QualificationError("CONCACAF needs the 0.4.0 fl26swiss.dll with contract v1; rebuild/repackage the native module")
     with open(lua,encoding="utf-8") as f: text=f.read()
-    if 'fl26_swiss_concacaf_version' not in text or 'fl26_swiss_concacaf' not in text:
+    if any('"%s"' % symbol not in text for symbol in required - {"fl26_swiss_concacaf_abi"}):
         raise Q.QualificationError("CONCACAF needs the matching fl26swiss.lua contract loader")
     return exports

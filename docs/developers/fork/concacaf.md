@@ -38,13 +38,23 @@ cup roles are `canadian_championship`, `us_open_cup`, `liga_mx_champion`, `mls_c
 Regional sources belong to their module and cannot be overridden as domestic sources.
 Unknown, foreign-association or unavailable explicit sources are errors.
 
-The adapter discovers top divisions by actual table countries/confederations, not a fixed
-MLS regulation id. Country classification provides default domestic roles; use overrides
-where a database has more than one top division. It only exposes domestic cups already
-available through the existing home-cup architecture. It does not invent an MLS Cup or
-an Apertura/Clausura champion resolver. When a separate champion source is unavailable,
-the league's first ranked eligible club is the documented direct-berth proxy. A future
-native adapter must supply the actual champion result before claiming sporting fidelity.
+The adapter discovers top divisions by table countries and confederations. Use source
+overrides where a database has more than one top division. When a source has a whole-season
+total, the builder registers its phases with 0.4.0's `seasonsum` provider and reserves the
+cup dates for both phases. The first phase supplies live membership for a first-season
+fallback and for filtering promoted or departed clubs. The retained whole-season table
+supplies the ranking when available. Upstream can omit a half whose completed table is
+unavailable, so a retained aggregate can represent fewer than all phases.
+
+The FL26 and FL27 tables checked here expose MLS as total 51 with phases 166 and 167.
+The aggregate can rank MLS clubs, subject to the completeness of those phase tables.
+It cannot identify the MLS Cup playoff winner. The same copies expose no playable Liga MX
+division or championship stages. A custom database can supply domestic league sources
+and a genuine winner when its championship has an identifiable completed knockout
+regulation and is exposed as a domestic cup source. The adapter does not auto-discover
+MLS Cup playoffs or Liga MX season winners. Without a usable title result, the first
+ranked eligible club in the supplied league remains the direct-berth proxy. Entry order
+is the first-edition fallback when a completed table is unavailable.
 
 `tools/concacaf.py` owns validation, source ordering, quotas and the qualification contract.
 `plan()` stores a versioned `concacaf` object with 27 source places, not a fixed club list;
@@ -198,16 +208,24 @@ conflict avoidance, not proof that an arbitrary congested world has no fixture c
 Check actual domestic cups, league matches and any other continental commitments in game.
 If handover misses the first R16 date, the runtime logs an error instead of dating it in the past.
 
-Build the native module with `tools/native/build-swiss.sh <output DLL>` (Zig), or on Windows:
+Use `tools/native/build-swiss.sh <output DLL>` to regenerate the draw table and compile
+with Zig. Where Zig is unavailable, the native README also permits a Windows x86-64
+compiler with GCC-style assembly. Generate the same table with `tools/mkswiss.py` and
+produce the DLL and its matching import library in an isolated build directory.
 
-```powershell
-gcc -shared -O2 -fno-builtin-logf -o out/concacaf-engine/fl26swiss.dll tools/native/fl26swiss.c -lkernel32
-```
+Keep rebuilt DLLs and import libraries in the local test output directory. The
+tracked copies in `tools/native` and `sider/experimental` follow upstream/main.
+`tools/lbpack.py` builds the DLL from source and pairs it with the Lua from this
+checkout in the normal `modules.txt` load order. Import libraries stay in the
+build output. Build and Switch on require the version-1 CONCACAF exports and
+the 0.4.0 loader interfaces.
 
-Package this DLL with this branch's `sider/experimental/fl26swiss.lua`. Rebuild the normal
-module pack using `tools/lbpack.py <new output directory>`; verify its Lua was not selected
-from an older sibling public checkout. Do not overwrite an existing development pack without
-retaining it. Build refuses a stale pack even if a newer DLL exists elsewhere in the repository.
+Mato confirmed that the public C source contains all 0.4.0 safeguards and that
+building the public runtime from it is officially supported. The shipped native
+DLL also exposes `fl26_swiss_wm_report`, `fl26_swiss_wm_state`, and
+`fl26_swiss_wm_fail` as intentionally private entry points. The public runtime
+requires none of them, and the Lua report probe is optional. The CONCACAF rebuild
+exports all 40 public 0.4.0 interfaces plus the three CONCACAF exports.
 
 For the next game test, install matching modules into a **separate FL27 test installation**,
 build a new isolated world with all three modules false, activate through Switch on, and
@@ -232,3 +250,20 @@ Set `CONCACAF_TEST_DLL` to the compiled DLL to include compatibility/build tests
 rejection, contract bounds and season resets without any game pointers.
 Also run the existing `test_pinned_ids.py` and `test_conmebol_modern.py` with that database
 path. The latter builds unrelated CONMEBOL worlds in a temporary fake game directory.
+
+## Cups and Qualification integration
+
+The Cups catalog reports the fixed 27-club format. Qualification retains stored
+target-13 assignments and the `concacaf` recipe object, and leaves generic cup-size
+presets unavailable for this competition. The standings strip skips the dedicated
+runtime entries because their placeholder ranks describe fixture shape.
+
+Future Cups entries should give Leagues Cup, Central American Cup and Caribbean Cup
+independent visibility and setup tied to `concacaf.modules`. Qualification should
+surface their regional eligibility and advancement rules through the same draft
+and validation flow as domestic sources. First Season should show which places use
+completed results and which use domestic entry order. After the first edition,
+season-scoped result providers should deliver each feeder's ordered finishers to
+the planner. Leagues Cup draws from MLS and Liga MX; Central American Cup and
+Caribbean Cup draw from their respective associations. Keep regional redistribution
+and overlap handling in the shared CONCACAF resolver.

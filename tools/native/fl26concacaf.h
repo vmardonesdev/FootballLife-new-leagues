@@ -35,11 +35,16 @@ static int cq_first_edition(int built, int today)
 /* Match ownership varies between master and replica across engine versions.
  * Count by the actual tie's two clubs, once per live match record. */
 static int cq_count_match(const uint32_t* clubs, uint32_t a, uint32_t b, int played,
-                           int* scheduled, int* unplayed)
+                           int* scheduled, int* unplayed, unsigned* legs)
 {
   for (int i=0;i<11;i++) if (cq_has(clubs+2*i,2,a) && cq_has(clubs+2*i,2,b)
                             && (a>>14)!=(b>>14)) {
-    scheduled[i]++; unplayed[i]+=!played; return 1;
+    unsigned leg = cq_has(clubs+2*i,1,a) ? 1u : 2u;
+    if (legs[i] & leg) return 0;
+    legs[i] |= leg;
+    scheduled[i]++;
+    unplayed[i] += !played;
+    return 1;
   }
   return 0;
 }

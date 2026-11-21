@@ -5,6 +5,8 @@
 int rcal_test_today(void) { return 0; }
 int rcal_test_invites(int k, uint16_t id) { (void)k; (void)id; return 0; }
 int rcal_test_recday(uint16_t id) { (void)id; return -1; }
+int rcal_test_dayload(int d) { (void)d; return 0; }
+int rcal_test_round(uint16_t id) { (void)id; return 0; }
 int main(void)
 {
   g_test_year=2026;
@@ -19,16 +21,20 @@ int main(void)
   g_ccup[1].reg=g_ccup[1].ko=510;
   assert(ccup_feeds(0,300)); assert(ccup_feeds(0,301)); /* fallback source also protected */
   assert(!ccup_feeds(0,302)); assert(!ccup_feeds(1,301));
-  busy_t busy[BUSY_MAX]; int n=busy_set(301,busy), found=0;
+  const uint16_t sum[] = {301, 303, 304, 0};
+  assert(fl26_swiss_seasonsum(sum, 1) == 1);
+  assert(cq_membership_reg(301) == 303);
+  assert(ccup_feeds(0,303) && ccup_feeds(0,304) && !ccup_feeds(1,304));
+  busy_t busy[BUSY_MAX]; int n=busy_set(304,busy), found=0;
   uint32_t reserved[9]={33,40,61,68,89,96,117,124,145};
   for (int i=0;i<n;i++) if (busy[i].kind==BZ_CONT) {
     for (int j=0;j<9;j++) if (busy[i].day==reserved[j]) found++;
   }
   assert(found==9);
-  uint16_t recipe[8]={301,51,339,0,0,96,16,0};
+  uint16_t recipe[8]={304,51,339,0,0,96,16,0};
   assert(fl26_swiss_rcal(recipe,1)==1);
   date_t rounds[30]; memset(rounds,0,sizeof rounds);
-  assert(rcal_dates(301,rcal_of(301),rounds,30,1)>=0);
+  assert(rcal_dates(304,rcal_of(304),rounds,30,1)>=0);
   for (int i=0;i<30;i++) for (int j=0;j<9;j++) {
     int gap=abs((int)rounds[i].day-(int)reserved[j]); if (gap>182) gap=365-gap;
     assert(gap>=3);

@@ -37,6 +37,8 @@ static char g_path_test[MAX_PATH + 64];
 int rcal_test_today(void) { return g_today_test; }
 int rcal_test_invites(int k, uint16_t id) { (void)k; (void)id; return 0; }
 int rcal_test_recday(uint16_t id) { (void)id; return -1; }
+int rcal_test_dayload(int d) { (void)d; return 0; }      /* B329: no day load, no league rounds */
+int rcal_test_round(uint16_t id) { (void)id; return 0; }
 int state_test_date(void) { return g_year_now * 365 + g_today_test; }
 uint32_t state_test_user(void) { return g_user_test; }
 const char* state_test_path(void) { return g_path_test; }
@@ -330,6 +332,68 @@ int main(void)
     state_store();
     expect(file_size() <= 8, "no club yet: nothing written");
   }
+
+  printf("\n2026-11-05: a record naming clubs this world has no team for is not read back (FL27 limits)\n");
+  {
+    /* rows 0x1000-0x1003 hold clubs 600-603 (600 at the row its value names, 601-603 at rows of
+       their own, which canon_club finds); club 700 is in no row: another world's id */
+    uint32_t nt = 0x1004;
+    unsigned char* arr = calloc(nt, TEAM_STRIDE);
+    *(uint32_t*)(arr + 0x1000 * TEAM_STRIDE) = CLUB(600);
+    for (uint32_t k = 1; k < 4; k++) *(uint32_t*)(arr + (size_t)(0x1000 + k) * TEAM_STRIDE) = (600 + k) << 14 | (0x1000 + k);
+    restart();
+    DeleteFileA(g_path_test);
+    g_user_test = USER_A;
+    go(2026, 0);
+    final_t* f = &g_seed[g_nseed++];
+    f->reg = 61; f->n = 4; f->day = abs_day();
+    for (int k = 0; k < 4; k++) f->club[k] = CLUB(600 + k);
+    f = &g_seed[g_nseed++];
+    f->reg = 62; f->n = 2; f->day = abs_day();
+    f->club[0] = CLUB(600); f->club[1] = CLUB(700);
+    state_store();
+    restart();
+    go(2026, 30);
+    g_test_teams = arr; g_test_nteams = nt;
+    state_sync();
+    final_t *s61 = 0, *s62 = 0;
+    for (int i = 0; i < g_nseed; i++) {
+      if (g_seed[i].reg == 61) s61 = &g_seed[i];
+      if (g_seed[i].reg == 62) s62 = &g_seed[i];
+    }
+    expect(s61 && s61->n == 4, "an order whose clubs all have a team (601-603 at rows of their own): read back");
+    expect(!s62, "an order with club 700, which no team record answers for: left out");
+    restart();
+    go(2026, 30);
+    g_test_teams = 0;
+    state_sync();
+    s62 = 0;
+    for (int i = 0; i < g_nseed; i++) if (g_seed[i].reg == 62) s62 = &g_seed[i];
+    expect(s62 != 0, "no team array to look at: taken as before");
+    free(arr);
+  }
+
+  printf("\nCONCACAF qualification snapshot across reload and July\n");
+  restart();
+  DeleteFileA(g_path_test);
+  g_user_test = USER_A;
+  go(2026, 243);
+  keep_table(CQ_SNAPSHOT, 500, 27);
+  state_store();
+  restart();
+  go(2027, 40);
+  final_t* edition = final_of(CQ_SNAPSHOT);
+  expect(edition && cq_snapshot_valid(edition->club, edition->n, edition->day, abs_day()),
+         "all 27 qualifiers are retained after a restart into Round One");
+  expect(edition && edition->club[0] == CLUB(500) && edition->club[26] == CLUB(526),
+         "the five-bye-first snapshot retains its original order");
+  go(2027, 182);
+  edition = final_of(CQ_SNAPSHOT);
+  expect(!edition || !cq_snapshot_valid(edition->club, edition->n, edition->day, abs_day()),
+         "July rejects the previous edition's field");
+  restart();
+  go(2026, 242);
+  expect(!final_of(CQ_SNAPSHOT), "loading before qualification cannot see the future snapshot");
 
   DeleteFileA(g_path_test);
   printf(fails ? "\n%d check(s) FAILED\n" : "\nall checks passed\n", fails);
